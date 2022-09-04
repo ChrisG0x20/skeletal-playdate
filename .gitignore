@@ -30,3 +30,15 @@
 *.exe
 *.out
 *.app
+*.pdx
+*.bin
+
+# OS Chaff
+.DS_Store
+
+# 3rd-Party Libraries
+extern/
+
+# Build Directories
+sim_build/
+dev_build/
