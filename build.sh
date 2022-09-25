@@ -7,7 +7,8 @@
 #
 
 game_name=Skeleton
-arm_toolchain_dir=$PLAYDATE_SDK_PATH/../arm-gnu-toolchain-11.3.rel1-darwin-x86_64-arm-none-eabi/bin/
+arm_toolchain_dir=$PLAYDATE_SDK_PATH/../arm-gnu-toolchain-11.3.rel1-darwin-x86_64-arm-none-eabi/bin
+# arm_toolchain_dir=$PLAYDATE_SDK_PATH/../gcc-arm-none-eabi-7-2017-q4-major/bin
 
 rm -rf "$game_name.pdx"
 rm Source/pdex.bin
@@ -17,14 +18,18 @@ rm Source/pdex.dylib
 #rm -rf build
 #make device
 
-if [ ! -d extern ]; then
-  mkdir extern
-  cd extern
-  if [ ! -d clg-math ]; then
-    git clone https://github.com/ChrisG0x20/clg-math
-  fi
-  cd -
+# rm -rf sim_build
+# rm -rf dev_build
+
+# get 3rd-party libraries
+cd extern
+if [ ! -d clg-math ]; then
+  git clone https://github.com/ChrisG0x20/clg-math
 fi
+if [ ! -d box2d ]; then
+  git clone https://github.com/erincatto/box2d.git
+fi
+cd -
 
 # make the simulator build directory
 if [ ! -d sim_build ]; then
@@ -38,14 +43,14 @@ fi
 
 # build the simulator executable
 cd sim_build
-#cmake -G "Xcode" -DCMAKE_BUILD_TYPE=Debug ..
-cmake -DCMAKE_BUILD_TYPE=Debug ..
-make
+cmake -G "Xcode" -DCMAKE_BUILD_TYPE=Debug ..
+# cmake -DCMAKE_BUILD_TYPE=Debug ..
+# make
 cd -
 
 # build the device executable
 cd dev_build
-cmake -DCMAKE_TOOLCHAIN_FILE=arm.cmake -DARM_TOOLCHAIN_PATH=$arm_toolchain_dir -DCMAKE_BUILD_TYPE=Release ..
+cmake -DCMAKE_TOOLCHAIN_FILE=$PWD/../arm.cmake -DARM_TOOLCHAIN_PATH=$arm_toolchain_dir -DCMAKE_BUILD_TYPE=Release ..
 make
 cd -
 

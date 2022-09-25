@@ -37,7 +37,8 @@
 .DS_Store
 
 # 3rd-Party Libraries
-extern/
+extern/clg-math
+extern/box2d
 
 # Build Directories
 sim_build/
