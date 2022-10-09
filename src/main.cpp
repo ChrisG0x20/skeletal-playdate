@@ -13,7 +13,9 @@
 #include "clg-math/clg_rectangle.hpp"
 #include "box2d/box2d.h"
 #include "sin_table.hpp"
+#include "memory.hpp"
 #include "drawing.hpp"
+#include "car_physics.hpp"
 
 namespace clg
 {
@@ -47,12 +49,12 @@ float fps;
 auto timerTotal = 0.0f;
 auto timerCount = 0;
 b2World* pWorldPhysics = nullptr;
-bool once = false;
+
+clg::Car simCar;
 
 void InitializePhysics()
 {
-    pd::logToConsole("creating world physics");
-    b2Vec2 gravity(0.0f, -10.0f);
+    b2Vec2 gravity(0.0f, 0.0f);
     pWorldPhysics = new (std::nothrow) b2World(gravity);
     if (nullptr == pWorldPhysics)
     {
@@ -60,19 +62,74 @@ void InitializePhysics()
         return;
     }
 
-    pd::logToConsole("creating ground body");
-    b2BodyDef groundBodyDef;
-    groundBodyDef.position.Set(0.0f, -10.0f);
+    b2Body* carBody;
+    {
+        b2BodyDef carBodyDef;
+        carBodyDef.type = b2BodyType::b2_dynamicBody;
+        carBody = pWorldPhysics->CreateBody(&carBodyDef);
+    }
+    // car fixture setup
+    {
+        b2PolygonShape carBox;
+        carBox.SetAsBox(1.143f, 2.286f);
+        b2FixtureDef carFixture;
+        carFixture.shape = &carBox;
+        carFixture.density = 1.0f; // TODO: make this more accurate???
+        carBody->CreateFixture(&carFixture);
+    }
+    // car mass
+    {
+        // massData.center = b2Vec2();
+        // massData.I = 0.0f; // TODO: before b2Body* is passed in?
+        auto massData = carBody->GetMassData();
+        massData.mass = (clg::Car::totalWeight - 4.0f * clg::Car::wheelWeight) / clg::formula::gravitationalAcceleration;
+        carBody->SetMassData(&massData);
+    }
+    // tire bodies
+    const b2Vec2 tirePos[4] =
+    {
+        b2Vec2(-0.84455f,  1.47955f), b2Vec2(0.84455f,  1.47955f),
+        b2Vec2(-0.84455f, -1.47955f), b2Vec2(0.84455f, -1.47955f)
+    };
+    b2Body* tireBodies[4];
+    {
+        b2BodyDef tireBodyDef;
+        tireBodyDef.type = b2BodyType::b2_dynamicBody;
+        b2FixtureDef tireFixture; // 66.5inch track and 116.5inch wheelbase (0.84455m hx, 1.47955m hy)
+        b2PolygonShape tireBox; // 245/35R21 tires (245mm wide; 245mm * 0.35 sidewall; fit 21inch rims)
+        {
+            tireBox.SetAsBox(0.1225f, 0.309575f); // 533.4mm rim + (0.35 * 245mm tires) == 533.4mm + 85.75mm == 619.15mm == 0.61915m
+            tireFixture.shape = &tireBox;
+            tireFixture.density = 1.0f; // TODO: make this more accurate???
+        }
+        auto pTirePos = tirePos;
+        for (auto& pTireBody : tireBodies)
+        {
+            tireBodyDef.position = *pTirePos++;
+            pTireBody = pWorldPhysics->CreateBody(&tireBodyDef);
+            pTireBody->CreateFixture(&tireFixture);
+            // tire mass
+            {
+                auto massData = pTireBody->GetMassData();
+                massData.mass = clg::Car::wheelWeight / clg::formula::gravitationalAcceleration;
+                pTireBody->SetMassData(&massData);
+            }
+        }
+    }
+    // front wheel pivot joints
+    b2RevoluteJoint* wheelJoint[2];
+    for (int i = 0; i < 2; i++)
+    {
+        b2RevoluteJointDef jointDef;
+        jointDef.enableLimit = true;
+        jointDef.lowerAngle = clg::to_radians(-40.0f);
+        jointDef.upperAngle = clg::to_radians(40.0f);
+        jointDef.maxMotorTorque = 500.0f;
+        jointDef.Initialize(carBody, tireBodies[i], tirePos[i]);
+        wheelJoint[i] = static_cast<b2RevoluteJoint*>(pWorldPhysics->CreateJoint(&jointDef));
+    }
 
-    pd::logToConsole("assigning ground body");
-    b2Body* groundBody = pWorldPhysics->CreateBody(&groundBodyDef);
-
-    pd::logToConsole("creating ground box");
-    b2PolygonShape groundBox;
-    groundBox.SetAsBox(50.0f, 10.0f);
-
-    pd::logToConsole("assigning ground box");
-    groundBody->CreateFixture(&groundBox, 0.0f);
+    simCar.Initialize(carBody, tireBodies, wheelJoint);
 
     // b2Log("test log from box2d %s %d %s...", "one", 2, "three");
 }
@@ -92,6 +149,7 @@ void StartUp()
     fps = 0.0f;
 
     clg::pFrameBuf = reinterpret_cast<uint32_t*>(pd::getFrame());
+    clg::InitializeDrawing();
 
     for (int y = 0; y < 100; y++)
         for (int x = 0; x < 100; x++)
@@ -135,6 +193,11 @@ void StartUp()
     clg::CompressTexture(100, 100, triangle, 100, compressedTriangle, checkerboardLinePitch);
 
     InitializePhysics();
+
+    size_t byte_count = 14u * 1024u * 1024u; // largest size allocated was (after physics and test textures): 16,294,156 (15.53MB)
+    auto ptr = clg::allocate_up_to(byte_count);
+    pd::logToConsole("memory pool size = %d", byte_count);
+    pd::realloc(ptr, 0);
 }
 
 void FixedUpdate(float elapsedFixedGameTimeInSeconds, float fixedUpdateDeltaT)
@@ -180,18 +243,14 @@ void ProcessInput(float elapsedSeconds)
 
 void FrameUpdate(float interpolationRatio, float frameTime)
 {
-    // if (!once)
-    // {
-    //     once = true;
-    //     InitializePhysics();
-    // }
-
     elapsedFrameTime = frameTime;
 
     for (unsigned int i = 0u; i < (pd::LcdRowStride / sizeof(clg::pFrameBuf[0]) * pd::LcdHeight); i++)
     {
         clg::pFrameBuf[i] = 0;
     }
+
+    clg::ClearDebugDrawing();
 
     clg::recti src(0, 0, 100, 100);
 
@@ -207,21 +266,28 @@ void FrameUpdate(float interpolationRatio, float frameTime)
 
     pd::resetElapsedTime();
 
-    clg::DrawBitmap(
-        compressedCheckerboard, // compressedTriangle, // checkerboard,
-        checkerboardLinePitch, // 100,
-        src,
+    clg::BlitTransformedAlphaTexturedRectangle(
         dst,
-        b2Angle,
         scale,
+        b2Angle,
+        src,
         srcCenterOffset,
-        nullptr
-    );
+        compressedCheckerboard, // compressedTriangle // checkerboard
+        checkerboardLinePitch,  // 100
+        true
+        );
 
     auto t = pd::getElapsedTime();
     pd::logToConsole("%d", (int)(t * 1000000.0f));
 
-//        clg::DrawAxisAlignedBitmap(compressedCheckerboard, src.width() / 4, src, clg::pointi(dst), clg::pointi(srcCenterOffset), nullptr);
+//    clg::DrawAxisAlignedBitmap(
+//        clg::pointi(10, 10),
+//        src,
+//        clg::pointi(srcCenterOffset),
+//        triangle,
+//        src.width(),
+//        true
+//        );
 
     /*
     clg::pointi srcCenterOffset2;

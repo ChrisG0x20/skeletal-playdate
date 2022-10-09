@@ -11,6 +11,16 @@ namespace clg
 {
     uint32_t *pFrameBuf;
 
+#if TARGET_PLAYDATE
+#else
+    LCDBitmap* pDebugBitmap;
+    uint8_t* pDebugBitmapMaskBuf;
+    uint8_t* pDebugBitmapBuf;
+    int debugRowbytes;
+#endif // TARGET_PLAYDATE
+
+    inline void DebugWritePixel(const int x, const int y);
+
     int GetCompressedTextureLinePitch(int width)
     {
         const auto result = round_up_to_alignment<sizeof(uint16_t)>(width);
@@ -119,22 +129,22 @@ namespace clg
         pixelBlock = 0 == (pixel & 0xff) ? pixelBlock & ~mask : pixelBlock | mask;
     }
 
-    void BlitRectangle(
-        const clg::pointi& dst,                         // rectangle destination on screen (centered on this coordinate)
-        const clg::recti& src,                          // start of the rectangle in pixel buffer; width and height of the rectangle in the pixel buffer
-        const clg::pointi& srcCenter,                   // center of the source image (the point it renders around & rotates around)
-        const int srcLinePitch,                         // line pitch of the pixel buffer
-        const uint8_t* const pixels,                    // pixel buffer
-        const uint_fast32_t* const debugOutlineColor    // [optional] debug outline box
+    void DrawAxisAlignedBitmap(
+        const pointi& dst,                  // display location to render to (where the center point is rendered)
+        const recti& src,                   // rectangle inside the source bitmap to render
+        const pointi& srcCenter,            // center of of the source rectangle (the point rendered at dst)
+        const uint8_t* const pixels,        // source bitmap's buffer to blit from
+        const uint_fast32_t srcLinePitch,   // line pitch (in bytes) of the source bitmap buffer
+        const bool drawDebugOutline         // draw debug outline box
     )
     {
-        const clg::pointi leftBottom = dst - srcCenter;
+        const pointi leftBottom = dst - srcCenter;
 
         if (
             leftBottom.x >= pd::LcdWidth ||     // clipped off the right
-            leftBottom.y>= pd::LcdHeight ||     // clipped off the bottom
-            leftBottom.x+ src.width() <= 0 ||   // clipped off the left
-            leftBottom.y+ src.height() <= 0     // clipped off the top
+            leftBottom.y >= pd::LcdHeight ||    // clipped off the bottom
+            leftBottom.x + src.width() <= 0 ||  // clipped off the left
+            leftBottom.y + src.height() <= 0    // clipped off the top
             )
         {
             return;
@@ -179,16 +189,47 @@ namespace clg
                 WritePixel(dx + j, dy + i, fragment);
             }
         }
+
+#ifndef TARGET_PLAYDATE
+        if (drawDebugOutline)
+        {
+            // axis-aligned bounding box of rotated rectangle
+            const int left = std::max(0, leftBottom.x);
+            const int right = std::min(pd::LcdWidth - 1, leftBottom.x + src.width());
+            const int bottom = std::max(0, leftBottom.y);
+            const int top = std::min(pd::LcdHeight - 1, leftBottom.y + src.height());
+
+            if (
+                left >= pd::LcdWidth ||     // clipped off the right
+                bottom >= pd::LcdHeight ||  // clipped off the bottom
+                right <= 0 ||               // clipped off the left
+                top <= 0                    // clipped off the top
+                )
+            {
+                return;
+            }
+
+            for (int x = left; x <= right; x++)
+            {
+                DebugWritePixel(x, bottom);
+                DebugWritePixel(x, top);
+            }
+            for (int y = bottom; y < top; y++)
+            {
+                DebugWritePixel(left, y);
+                DebugWritePixel(right, y);
+            }
+        }
+#endif // TARGET_PLAYDATE
     }
 
     template<typename base_type, int fractional_bit_count>
     inline constexpr base_type make_fixed_point(float number)
     {
         constexpr int base_bit_count = sizeof(base_type) * 8;
-        constexpr int whole_bit_count = base_bit_count - fractional_bit_count;
         constexpr int fractional_part_multiplier = 1 << fractional_bit_count;
         static_assert(fractional_bit_count < base_bit_count, "too many fractional bits");
-        assert(number < powf(2, whole_bit_count - 1) && number > -powf(2, whole_bit_count - 1) - 1.0f);
+        assert(number < powf(2, base_bit_count - fractional_bit_count - 1) && number > -powf(2, base_bit_count - fractional_bit_count - 1) - 1.0f);
 
         const base_type result = number * fractional_part_multiplier;
         return result;
@@ -217,14 +258,14 @@ namespace clg
 
     // scale -> rotate -> translate
     void BlitTransformedAlphaTexturedRectangle(
-        const point& dst,                               // rectangle destination on screen (centered on this coordinate)
-        const sizev& scale,                             // scale on screen
-        const float angle,                              // rotation in radians
-        const recti& src,                               // start of the rectangle in pixel buffer; width and height of the rectangle in the pixel buffer
-        const point& srcCenter,                         // center of the source image (the point it renders around & rotates around)
-        const uint8_t* const pixels,                    // pixel buffer
-        const int srcLinePitch,                         // line pitch of the pixel buffer
-        const uint_fast32_t* const debugOutlineColor    // [optional] debug outline box
+        const point& dst,               // rectangle destination on screen (centered on this coordinate)
+        const sizev& scale,             // scale on screen
+        const float angle,              // rotation in radians
+        const recti& src,               // start of the rectangle in pixel buffer; width and height of the rectangle in the pixel buffer
+        const point& srcCenter,         // center of the source image (the point it renders around & rotates around)
+        const uint8_t* const pixels,    // pixel buffer
+        const int srcLinePitch,         // line pitch of the pixel buffer
+        const bool drawDebugOutline     // draw debug outline box
     )
     {
         const auto srcSize = src.size();
@@ -368,49 +409,71 @@ namespace clg
                 srcPosY += srcStepY;
             }
         }
+
+#ifndef TARGET_PLAYDATE
+        if (drawDebugOutline)
+        {
+            // axis-aligned bounding box of rotated rectangle
+            const auto xb = std::minmax({ lb.x, rb.x, lt.x, rt.x });
+            const int left = std::max(0, static_cast<int>(xb.first));
+            const int right = std::min(pd::LcdWidth - 1, static_cast<int>(xb.second));
+            const int bottom = begin_scanline;
+            const int top = end_scanline - 1;
+
+            if (
+                left >= pd::LcdWidth ||     // clipped off the right
+                bottom >= pd::LcdHeight ||  // clipped off the bottom
+                right <= 0 ||               // clipped off the left
+                top <= 0                    // clipped off the top
+                )
+            {
+                return;
+            }
+
+            for (int x = left; x <= right; x++)
+            {
+                DebugWritePixel(x, bottom);
+                DebugWritePixel(x, top);
+            }
+            for (int y = bottom; y < top; y++)
+            {
+                DebugWritePixel(left, y);
+                DebugWritePixel(right, y);
+            }
+        }
+#endif // TARGET_PLAYDATE
     }
 
-    void DrawAxisAlignedBitmap(
-        const uint8_t* const pixels,                    // source bitmap's buffer to blit from
-        const uint_fast32_t srcLinePitch,               // line pitch (in bytes) of the source bitmap buffer
-        const recti& src,                               // rectangle inside the source bitmap to render
-        const pointi& dst,                              // display location to render to (where the center point is rendered)
-        const pointi& srcCenterOffset,                  // center of of the source rectangle (the point rendered at dst)
-        const uint_fast32_t* const debugOutlineColor    // [optional] debug outline box
-    )
+#if TARGET_PLAYDATE
+    inline void InitializeDrawing() {}
+    inline void ClearDebugDrawing() {}
+    inline void DebugWritePixel(const int x, const int y) {}
+#else
+    inline void InitializeDrawing()
     {
-        BlitRectangle(
-            dst,
-            src,
-            srcCenterOffset,
-            srcLinePitch,
-            pixels,
-            debugOutlineColor
-        );
+        int width;
+        int height;
+        pDebugBitmap = pd::getDebugBitmap();
+        pd::getBitmapData(pDebugBitmap, &width, &height, &debugRowbytes, &pDebugBitmapMaskBuf, &pDebugBitmapBuf);
     }
 
-    void DrawBitmap(
-        const uint8_t* const pixels,                    // source bitmap's buffer to blit from
-        const uint_fast32_t srcLinePitch,               // line pitch (in bytes) of the source bitmap buffer
-        const recti& src,                               // rectangle inside the source bitmap to render
-        const point& dst,                               // display location to render to (where the center point is rendered)
-        const float orientation,                        // angle of rotation (in radians)
-        const sizev& scale,                             // scale to render the bitmap at
-        const point& srcCenterOffset,                   // center of of the source rectangle (the point rendered at dst)
-        const uint_fast32_t* const debugOutlineColor    // [optional] debug outline box
-    )
+    inline void ClearDebugDrawing()
     {
-        BlitTransformedAlphaTexturedRectangle(
-            dst,
-            scale,
-            orientation,
-            src,
-            srcCenterOffset,
-            pixels,
-            srcLinePitch,
-            debugOutlineColor
-        );
+        pd::clearBitmap(pDebugBitmap, kColorBlack);
     }
+
+    inline void DebugWritePixel(const int x, const int y)
+    {
+        //if (0 == (2 & pixel)) return; // if (transparent)
+        const auto idx = FlipY(y) * debugRowbytes + (x >> 3); // (invert y-axis) * (screenLinePitch) + (x / 8)
+        const auto mask = 0x80u >> (x & 0x7); // get a 1 bit mask for the desired pixel
+
+        // overwrite display pixel block
+        auto& pixelBlock = reinterpret_cast<uint8_t*>(pDebugBitmapBuf)[idx];
+        // pixelBlock = 0 == (pixel & 0xff) ? pixelBlock & ~mask : pixelBlock | mask;
+        pixelBlock |= mask;
+    }
+#endif // TARGET_PLAYDATE
 } // namespace clg
 
 #endif // CLGDRAWING_HPP

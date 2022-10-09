@@ -15,7 +15,8 @@ extern "C"
 #include <new>
 #include <cstdarg>
 
-namespace pd {
+namespace pd
+{
     constexpr int LcdWidth = LCD_COLUMNS;
     constexpr int LcdHeight = LCD_ROWS;
     constexpr int LcdRowStride = LCD_ROWSIZE;
@@ -40,7 +41,40 @@ namespace pd {
     extern decltype(playdate_display::getHeight) getHeight;
     extern decltype(playdate_display::setRefreshRate) setRefreshRate;
 
+    // Drawing Functions
     extern decltype(playdate_graphics::clear) clear;
+    extern decltype(playdate_graphics::setBackgroundColor) setBackgroundColor;
+    extern decltype(playdate_graphics::setStencil) setStencil; // deprecated in favor of setStencilImage, which adds a "tile" flag
+    extern decltype(playdate_graphics::setDrawMode) setDrawMode;
+    extern decltype(playdate_graphics::setDrawOffset) setDrawOffset;
+    extern decltype(playdate_graphics::setClipRect) setClipRect;
+    extern decltype(playdate_graphics::clearClipRect) clearClipRect;
+    extern decltype(playdate_graphics::setLineCapStyle) setLineCapStyle;
+    extern decltype(playdate_graphics::setFont) setFont;
+    extern decltype(playdate_graphics::setTextTracking) setTextTracking;
+    extern decltype(playdate_graphics::pushContext) pushContext;
+    extern decltype(playdate_graphics::popContext) popContext;
+
+    extern decltype(playdate_graphics::drawBitmap) drawBitmap;
+    extern decltype(playdate_graphics::tileBitmap) tileBitmap;
+    extern decltype(playdate_graphics::drawLine) drawLine;
+    extern decltype(playdate_graphics::fillTriangle) fillTriangle;
+    extern decltype(playdate_graphics::drawRect) drawRect;
+    extern decltype(playdate_graphics::fillRect) fillRect;
+    extern decltype(playdate_graphics::drawEllipse) drawEllipse; // stroked inside the rect
+    extern decltype(playdate_graphics::fillEllipse) fillEllipse;
+    extern decltype(playdate_graphics::drawScaledBitmap) drawScaledBitmap;
+    extern decltype(playdate_graphics::drawText) drawText;
+
+    // LCDBitmap
+    extern decltype(playdate_graphics::newBitmap) newBitmap;
+    extern decltype(playdate_graphics::freeBitmap) freeBitmap;
+    extern decltype(playdate_graphics::loadBitmap) loadBitmap;
+    extern decltype(playdate_graphics::copyBitmap) copyBitmap;
+    extern decltype(playdate_graphics::loadIntoBitmap) loadIntoBitmap;
+    extern decltype(playdate_graphics::getBitmapData) getBitmapData;
+    extern decltype(playdate_graphics::clearBitmap) clearBitmap;
+    extern decltype(playdate_graphics::rotatedBitmap) rotatedBitmap;
 
 	// Returns the current display frame buffer. Rows are 32-bit aligned, so the
 	// row stride is 52 bytes, with the extra 2 bytes per row ignored. Bytes are

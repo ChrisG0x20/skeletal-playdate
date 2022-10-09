@@ -35,7 +35,40 @@ decltype(playdate_display::getWidth) getWidth = nullptr;
 decltype(playdate_display::getHeight) getHeight = nullptr;
 decltype(playdate_display::setRefreshRate) setRefreshRate = nullptr;
 
+// Drawing Functions
 decltype(playdate_graphics::clear) clear = nullptr;
+decltype(playdate_graphics::setBackgroundColor) setBackgroundColor = nullptr;
+decltype(playdate_graphics::setStencil) setStencil = nullptr; // deprecated in favor of setStencilImage, which adds a "tile" flag
+decltype(playdate_graphics::setDrawMode) setDrawMode = nullptr;
+decltype(playdate_graphics::setDrawOffset) setDrawOffset = nullptr;
+decltype(playdate_graphics::setClipRect) setClipRect = nullptr;
+decltype(playdate_graphics::clearClipRect) clearClipRect = nullptr;
+decltype(playdate_graphics::setLineCapStyle) setLineCapStyle = nullptr;
+decltype(playdate_graphics::setFont) setFont = nullptr;
+decltype(playdate_graphics::setTextTracking) setTextTracking = nullptr;
+decltype(playdate_graphics::pushContext) pushContext = nullptr;
+decltype(playdate_graphics::popContext) popContext = nullptr;
+
+decltype(playdate_graphics::drawBitmap) drawBitmap = nullptr;
+decltype(playdate_graphics::tileBitmap) tileBitmap = nullptr;
+decltype(playdate_graphics::drawLine) drawLine = nullptr;
+decltype(playdate_graphics::fillTriangle) fillTriangle = nullptr;
+decltype(playdate_graphics::drawRect) drawRect = nullptr;
+decltype(playdate_graphics::fillRect) fillRect = nullptr;
+decltype(playdate_graphics::drawEllipse) drawEllipse = nullptr; // stroked inside the rect
+decltype(playdate_graphics::fillEllipse) fillEllipse = nullptr;
+decltype(playdate_graphics::drawScaledBitmap) drawScaledBitmap = nullptr;
+decltype(playdate_graphics::drawText) drawText = nullptr;
+
+// LCDBitmap
+decltype(playdate_graphics::newBitmap) newBitmap = nullptr;
+decltype(playdate_graphics::freeBitmap) freeBitmap = nullptr;
+decltype(playdate_graphics::loadBitmap) loadBitmap = nullptr;
+decltype(playdate_graphics::copyBitmap) copyBitmap = nullptr;
+decltype(playdate_graphics::loadIntoBitmap) loadIntoBitmap = nullptr;
+decltype(playdate_graphics::getBitmapData) getBitmapData = nullptr;
+decltype(playdate_graphics::clearBitmap) clearBitmap = nullptr;
+decltype(playdate_graphics::rotatedBitmap) rotatedBitmap = nullptr;
 
 // Returns the current display frame buffer. Rows are 32-bit aligned, so the
 // row stride is 52 bytes, with the extra 2 bytes per row ignored. Bytes are
@@ -96,7 +129,38 @@ void InitializePlaydateAPI(PlaydateAPI* pPlaydate)
     pd::getWidth = pd->display->getWidth;
     pd::getHeight = pd->display->getHeight;
     pd::setRefreshRate = pd->display->setRefreshRate;
+    // Drawing Functions
     pd::clear = pd->graphics->clear;
+    pd::setBackgroundColor = pd->graphics->setBackgroundColor;
+    pd::setStencil = pd->graphics->setStencil;
+    pd::setDrawMode = pd->graphics->setDrawMode;
+    pd::setDrawOffset = pd->graphics->setDrawOffset;
+    pd::setClipRect = pd->graphics->setClipRect;
+    pd::clearClipRect = pd->graphics->clearClipRect;
+    pd::setLineCapStyle = pd->graphics->setLineCapStyle;
+    pd::setFont = pd->graphics->setFont;
+    pd::setTextTracking = pd->graphics->setTextTracking;
+    pd::pushContext = pd->graphics->pushContext;
+    pd::popContext = pd->graphics->popContext;
+    pd::drawBitmap = pd->graphics->drawBitmap;
+    pd::tileBitmap = pd->graphics->tileBitmap;
+    pd::drawLine = pd->graphics->drawLine;
+    pd::fillTriangle = pd->graphics->fillTriangle;
+    pd::drawRect = pd->graphics->drawRect;
+    pd::fillRect = pd->graphics->fillRect;
+    pd::drawEllipse = pd->graphics->drawEllipse;
+    pd::fillEllipse = pd->graphics->fillEllipse;
+    pd::drawScaledBitmap = pd->graphics->drawScaledBitmap;
+    pd::drawText = pd->graphics->drawText;
+    // LCDBitmap
+    pd::newBitmap = pd->graphics->newBitmap;
+    pd::freeBitmap = pd->graphics->freeBitmap;
+    pd::loadBitmap = pd->graphics->loadBitmap;
+    pd::copyBitmap = pd->graphics->copyBitmap;
+    pd::loadIntoBitmap = pd->graphics->loadIntoBitmap;
+    pd::getBitmapData = pd->graphics->getBitmapData;
+    pd::clearBitmap = pd->graphics->clearBitmap;
+    pd::rotatedBitmap = pd->graphics->rotatedBitmap;
     pd::getFrame = pd->graphics->getFrame;
     pd::getDebugBitmap = pd->graphics->getDebugBitmap;
     pd::markUpdatedRows = pd->graphics->markUpdatedRows;
