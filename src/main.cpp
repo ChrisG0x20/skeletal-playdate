@@ -28,16 +28,16 @@ namespace game
 // Game Code
 /////////////
 
+using PaintTextureFunc = void (*)(uint8_t* pCanvas, int width, int height);
+
 float elapsedFrameTime;
 
 clg::point p;
 float step;
-uint8_t hollow_rectangle[100 * 100];
-uint8_t checkerboard[100 * 100];
-uint8_t* compressedCheckerboard;
-uint8_t triangle[100 * 100];
-uint8_t* compressedTriangle;
-int checkerboardLinePitch;
+uint8_t* pHollowRectangle;
+uint8_t* pTriangle;
+uint8_t* pCheckerboard;
+int compressedLinePitchWithTransparency;
 clg::sizev b2Scale;
 float b2Angle;
 float cycle;
@@ -49,17 +49,18 @@ float fps;
 auto timerTotal = 0.0f;
 auto timerCount = 0;
 b2World* pWorldPhysics = nullptr;
+clg::Car* pCarSim = nullptr;
+clg::memory_arena* pLevelArena = nullptr;
+clg::memory_arena* pFrameArena = nullptr;
 
-clg::Car simCar;
-
-void InitializePhysics()
+bool InitializePhysics()
 {
     b2Vec2 gravity(0.0f, 0.0f);
     pWorldPhysics = new (std::nothrow) b2World(gravity);
     if (nullptr == pWorldPhysics)
     {
-        pd::logToConsole("ERROR: failed to allocated world physics");
-        return;
+        pd::error("ERROR: failed to allocated memory for world physics");
+        return false;
     }
 
     b2Body* carBody;
@@ -129,9 +130,115 @@ void InitializePhysics()
         wheelJoint[i] = static_cast<b2RevoluteJoint*>(pWorldPhysics->CreateJoint(&jointDef));
     }
 
-    simCar.Initialize(carBody, tireBodies, wheelJoint);
+    pCarSim = new (std::nothrow) clg::Car();
+    if (nullptr == pCarSim)
+    {
+        pd::error("ERROR: failed to allocate memory for vehicle physics simulation");
+        return false;
+    }
+
+    pCarSim->Initialize(carBody, tireBodies, wheelJoint);
 
     // b2Log("test log from box2d %s %d %s...", "one", 2, "three");
+    return true;
+}
+
+void PaintHollowRectangle(uint8_t* pCanvas, int width, int height)
+{
+    for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+            pCanvas[y * width + x] = (0 == x || (width - 1) == x || 0 == y || (height - 1) == y) ? 3 : 0;
+}
+
+void PaintTriangle(uint8_t* pCanvas, int width, int height)
+{
+    PaintHollowRectangle(pCanvas, width, height);
+
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            if (x >= (y / 2) && x <= (height - y / 2))
+                pCanvas[y * width + x] = 3;
+        }
+    }
+}
+
+template<int run_length = 4>
+void PaintCheckerboard(uint8_t* pCanvas, int width, int height)
+{
+    int yrun = 0;
+    for (int y = 0; y < height; y++)
+    {
+        int xrun = yrun < run_length ? 0 : run_length;
+        for (int x = 0; x < width; x++)
+        {
+            pCanvas[y * width + x] = (xrun < run_length) ? 3 : 0;
+            if (++xrun >= run_length * 2)
+            {
+                xrun = 0;
+            }
+        }
+
+        if (++yrun >= run_length * 2)
+        {
+            yrun = 0;
+        }
+    }
+}
+
+// Creates a compressed texture with without an alpha channel for transparency
+// Format: 1-bit per pixel; y starts at the bottom
+uint8_t* CreateTexture(clg::memory_arena* pDstArena, clg::memory_arena* pTransientArena, int width, int height,
+    const PaintTextureFunc PaintTexture, int& linePitch)
+{
+    auto pUncompressed = static_cast<uint8_t*>(pTransientArena->alloc(width * height));
+    if (nullptr == pUncompressed)
+    {
+        pd::error("ERROR: failed to allocate enough memory to paint texture");
+        return nullptr;
+    }
+
+    PaintTexture(pUncompressed, width, height);
+    const auto uncompressedLinePitch = width;
+    const auto compressedLinePitch = clg::GetCompressedTextureLinePitch<sizeof(uint16_t), false>(width);
+    auto pCompressed = static_cast<uint8_t*>(pDstArena->aligned_alloc<pd::PageAlignment>(compressedLinePitch * height));
+    if (nullptr == pCompressed)
+    {
+        pd::error("ERROR: failed to allocate enough memory to compress texture");
+        return nullptr;
+    }
+
+    clg::CompressTexture<false>(width, height, pUncompressed, uncompressedLinePitch, pCompressed, compressedLinePitch);
+    linePitch = compressedLinePitch;
+    return pCompressed;
+}
+
+// Creates a compressed texture with an alpha channel for transparency
+// Format: 2-bits per pixel, 1-alpha bit and 1-color bit; y starts at the bottom
+uint8_t* CreateTextureWithTransparency(clg::memory_arena* pDstArena, clg::memory_arena* pTransientArena, int width, int height,
+    const PaintTextureFunc PaintTexture, int& linePitch)
+{
+    auto pUncompressed = static_cast<uint8_t*>(pTransientArena->alloc(width * height));
+    if (nullptr == pUncompressed)
+    {
+        pd::error("ERROR: failed to allocate enough memory to paint texture");
+        return nullptr;
+    }
+
+    PaintTexture(pUncompressed, width, height);
+    const auto uncompressedLinePitch = width;
+    const auto compressedLinePitch = clg::GetCompressedTextureLinePitch<sizeof(uint16_t), true>(width);
+    auto pCompressed = static_cast<uint8_t*>(pDstArena->aligned_alloc<pd::PageAlignment>(compressedLinePitch * height));
+    if (nullptr == pCompressed)
+    {
+        pd::error("ERROR: failed to allocate enough memory to compress texture");
+        return nullptr;
+    }
+
+    clg::CompressTexture<true>(width, height, pUncompressed, uncompressedLinePitch, pCompressed, compressedLinePitch);
+    linePitch = compressedLinePitch;
+    return pCompressed;
 }
 
 void StartUp()
@@ -148,56 +255,55 @@ void StartUp()
     ups = 0.0f;
     fps = 0.0f;
 
-    clg::pFrameBuf = reinterpret_cast<uint32_t*>(pd::getFrame());
     clg::InitializeDrawing();
 
-    for (int y = 0; y < 100; y++)
-        for (int x = 0; x < 100; x++)
-            hollow_rectangle[y * 100 + x] = (0 == x || 99 == x || 0 == y || 99 == y) ? 3 : 0;
-
-    for (int i = 0; i < 100 * 100; i++)
-        triangle[i] = hollow_rectangle[i];
-
-    for (int y = 0; y < 100; y++)
-        for (int x = 0; x < y; x++)
-            triangle[y * 100 + x] = 3;
-
-    const int run_length = 4;
-
-    int yrun = 0;
-    for (int y = 0; y < 100; y++)
+    auto isPhysicsInitialized = InitializePhysics();
+    if (!isPhysicsInitialized)
     {
-        int xrun = yrun < run_length ? 0 : run_length;
-        for (int x = 0; x < 100; x++)
-        {
-            checkerboard[y * 100 + x] = (xrun < run_length) ? 0x3 : 0;
-            if (++xrun >= run_length * 2)
-            {
-                xrun = 0;
-            }
-        }
-
-        if (++yrun >= run_length * 2)
-        {
-            yrun = 0;
-        }
+        // TODO: some sort of error screen
+        return;
     }
 
-    // packs bytes into 2-bit per pixel quads inside the compressed texture
-    // bit 0x2 is transparency, bit 0x1 is the pixel color (0 black, 1 gray)
-    checkerboardLinePitch = clg::GetCompressedTextureLinePitch(100);
-    compressedCheckerboard = static_cast<uint8_t*>(malloc(100 * checkerboardLinePitch + 15 * sizeof(uint16_t))); // + 15 memory words
-    compressedCheckerboard = (uint8_t*)clg::align_pointer<16 * sizeof(uint16_t)>(compressedCheckerboard);
-    compressedTriangle = static_cast<uint8_t*>(malloc(100 * checkerboardLinePitch));
-    clg::CompressTexture(100, 100, checkerboard, 100, compressedCheckerboard, checkerboardLinePitch);
-    clg::CompressTexture(100, 100, triangle, 100, compressedTriangle, checkerboardLinePitch);
+    // allocate memory per frame memory arena
+    {
+        pLevelArena = new (std::nothrow) clg::memory_arena(); // current level heap
+        pFrameArena = new (std::nothrow) clg::memory_arena(); // per frame heap
+        if (nullptr == pLevelArena || nullptr == pFrameArena)
+        {
+            pd::error("ERROR: failed to memory arena object");
+            // TODO: error message splash screen
+            return;
+        }
 
-    InitializePhysics();
+        // largest size allocated was (after physics and test textures): 16,294,156 (15.53MB)
+        size_t levelHeapSize = 8u * 1024u * 1024u;
+        size_t frameHeapSize = 6u * 1024u * 1024u;
+        levelHeapSize = pLevelArena->initialize(levelHeapSize);
+        if (0 == levelHeapSize)
+        {
+            pd::error("ERROR: failed to allocate memory pool for level heap");
+            // TODO: error message splash screen
+            return;
+        }
 
-    size_t byte_count = 14u * 1024u * 1024u; // largest size allocated was (after physics and test textures): 16,294,156 (15.53MB)
-    auto ptr = clg::allocate_up_to(byte_count);
-    pd::logToConsole("memory pool size = %d", byte_count);
-    pd::realloc(ptr, 0);
+        frameHeapSize = pFrameArena->initialize(frameHeapSize);
+        if (0 == frameHeapSize)
+        {
+            pd::error("ERROR: failed to allocate memory pool for frame heap");
+            // TODO: error message splash screen
+            return;
+        }
+
+        pd::logToConsole("memory allocated for level heap = %d", levelHeapSize);
+        pd::logToConsole("memory allocated for frame heap = %d", frameHeapSize);
+    }
+
+    // create some test textures
+    {
+        pHollowRectangle = CreateTextureWithTransparency(pLevelArena, pFrameArena, 100, 100, &PaintHollowRectangle, compressedLinePitchWithTransparency);
+        pTriangle = CreateTextureWithTransparency(pLevelArena, pFrameArena, 100, 100, &PaintTriangle, compressedLinePitchWithTransparency);
+        pCheckerboard = CreateTextureWithTransparency(pLevelArena, pFrameArena, 100, 100, &PaintCheckerboard, compressedLinePitchWithTransparency);
+    }
 }
 
 void FixedUpdate(float elapsedFixedGameTimeInSeconds, float fixedUpdateDeltaT)
@@ -245,11 +351,7 @@ void FrameUpdate(float interpolationRatio, float frameTime)
 {
     elapsedFrameTime = frameTime;
 
-    for (unsigned int i = 0u; i < (pd::LcdRowStride / sizeof(clg::pFrameBuf[0]) * pd::LcdHeight); i++)
-    {
-        clg::pFrameBuf[i] = 0;
-    }
-
+    clg::ClearFrameBuffer();
     clg::ClearDebugDrawing();
 
     clg::recti src(0, 0, 100, 100);
@@ -272,8 +374,8 @@ void FrameUpdate(float interpolationRatio, float frameTime)
         b2Angle,
         src,
         srcCenterOffset,
-        compressedCheckerboard, // compressedTriangle // checkerboard
-        checkerboardLinePitch,  // 100
+        pCheckerboard, // pCheckerboard pHollowRectangle pTriangle
+        compressedLinePitchWithTransparency,
         true
         );
 

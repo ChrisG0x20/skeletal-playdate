@@ -21,14 +21,25 @@ namespace clg
 
     inline void DebugWritePixel(const int x, const int y);
 
-    int GetCompressedTextureLinePitch(int width)
+    template<unsigned int bytes_of_alignment, bool with_alpha>
+    inline constexpr int GetCompressedTextureLinePitch(int width)
     {
-        const auto result = round_up_to_alignment<sizeof(uint16_t)>(width);
-        return result;
+        unsigned int required_byte_count;
+        if constexpr (with_alpha)
+            required_byte_count = ((width + 3) >> 2);
+        else
+            required_byte_count = ((width + 7) >> 3);
+
+        const unsigned int alignment_adjustment = bytes_of_alignment - 1;
+        const unsigned int aligned_byte_count = (required_byte_count + alignment_adjustment) & ~alignment_adjustment;
+        return aligned_byte_count;
     }
 
+    template<bool with_alpha>
     void CompressTexture(int width, int height, const uint8_t* const uncompressed, int srcLinePitch, uint8_t* const compressed, int dstLinePitch)
     {
+        constexpr int pixels_per_byte = with_alpha ? 4 : 8;
+        constexpr uint8_t pixel_mask = with_alpha ? 3 : 1;
         auto pSrc = uncompressed;
         auto pDst = compressed;
         for (auto y = 0; y < height; y++)
@@ -36,34 +47,24 @@ namespace clg
             const auto pNextSrcLine = pSrc + srcLinePitch;
             const auto pNextDstLine = pDst + dstLinePitch;
 
-            for (auto x = 0; x < width; x += 4)
+            int run_length = 0;
+            uint8_t acc = 0;
+            for (int x = 0; x < width; x++, run_length++)
             {
-                if (x + 3 < width)
+                if (run_length >= pixels_per_byte)
                 {
-                    uint8_t packed = *pSrc << 6 & 0xc0; pSrc++;
-                    packed |= *pSrc << 4 & 0x30; pSrc++;
-                    packed |= *pSrc << 2 & 0x0c; pSrc++;
-                    packed |= *pSrc & 0x03; pSrc++;
-                    *pDst++ = packed;
+                    *pDst++ = acc;
+                    acc = 0;
+                    run_length = 0;
                 }
-                else if (x + 2 < width)
-                {
-                    uint8_t packed = *pSrc << 6 & 0xc0; pSrc++;
-                    packed |= *pSrc << 4 & 0x30; pSrc++;
-                    packed |= *pSrc << 2 & 0x0c; pSrc++;
-                    *pDst++ = packed;
-                }
-                else if (x + 1 < width)
-                {
-                    uint8_t packed = *pSrc << 6 & 0xc0; pSrc++;
-                    packed |= *pSrc << 4 & 0x30; pSrc++;
-                    *pDst++ = packed;
-                }
-                else
-                {
-                    uint8_t packed = *pSrc << 6 & 0xc0; pSrc++;
-                    *pDst++ = packed;
-                }
+
+                acc <<= (8 / pixels_per_byte);
+                acc |= *pSrc++ & pixel_mask;
+            }
+
+            if (run_length > 0)
+            {
+                *pDst++ = acc;
             }
 
             pSrc = pNextSrcLine;
@@ -444,13 +445,23 @@ namespace clg
 #endif // TARGET_PLAYDATE
     }
 
+    inline void ClearFrameBuffer()
+    {
+        std::fill(pFrameBuf, pFrameBuf + pd::LcdRowStride / sizeof(clg::pFrameBuf[0]) * pd::LcdHeight, 0);
+    }
+
 #if TARGET_PLAYDATE
-    inline void InitializeDrawing() {}
+    inline void InitializeDrawing()
+    {
+        pFrameBuf = reinterpret_cast<uint32_t*>(pd::getFrame());
+    }
+
     inline void ClearDebugDrawing() {}
     inline void DebugWritePixel(const int x, const int y) {}
 #else
     inline void InitializeDrawing()
     {
+        pFrameBuf = reinterpret_cast<uint32_t*>(pd::getFrame());
         int width;
         int height;
         pDebugBitmap = pd::getDebugBitmap();

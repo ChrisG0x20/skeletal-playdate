@@ -73,10 +73,10 @@ namespace clg
         }
     }
 
-    class arena_allocator
+    class memory_arena
     {
         public:
-        arena_allocator()
+        memory_arena()
             : p_pool(nullptr)
             , p_next(nullptr)
             , total_size(0)
@@ -84,7 +84,7 @@ namespace clg
         {
         }
 
-        ~arena_allocator()
+        ~memory_arena()
         {
             deallocate_owned_pool();
         }
@@ -114,6 +114,7 @@ namespace clg
             p_next = ptr;
             total_size = size;
             is_owned = false;
+            return size;
         }
 
         // reset the memory arena usage tracking
@@ -146,6 +147,23 @@ namespace clg
             auto p_result = p_next;
             p_next = static_cast<uint8_t*>(p_next) + size;
             return p_result;
+        }
+
+        // allocate aligned bytes in this arena
+        template<int byte_alignment>
+        void* aligned_alloc(size_t size)
+        {
+            const auto p_next_aligned = static_cast<uint8_t*>(clg::align_pointer<byte_alignment>(p_next));
+            const auto additional_byte_count = p_next_aligned - static_cast<uint8_t*>(p_next);
+
+            if (size + additional_byte_count > get_free_count())
+            {
+                pd::error("attempted to allocate more memory than arena has available");
+                return nullptr;
+            }
+
+            p_next = static_cast<uint8_t*>(p_next_aligned) + size;
+            return p_next_aligned;
         }
 
         private:

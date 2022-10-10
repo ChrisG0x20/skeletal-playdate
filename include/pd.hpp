@@ -17,6 +17,7 @@ extern "C"
 
 namespace pd
 {
+    constexpr int PageAlignment = 16 * sizeof(uint16_t);
     constexpr int LcdWidth = LCD_COLUMNS;
     constexpr int LcdHeight = LCD_ROWS;
     constexpr int LcdRowStride = LCD_ROWSIZE;

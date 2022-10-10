@@ -261,11 +261,11 @@ void* operator new(std::size_t count, const std::nothrow_t& tag) noexcept
     const auto pTemp = pd::realloc(nullptr, count);
     if (nullptr != pTemp)
     {
-        pd::logToConsole("SUCCESS: allocated memory in global new operator");
+        pd::logToConsole("SUCCESS: allocated memory in global new operator: %u", count);
         return pTemp;
     }
 
-    pd::logToConsole("ERROR: failed to allocate memory in global new operator");
+    pd::logToConsole("ERROR: failed to allocate memory in global new operator: %u", count);
     return nullptr;
 }
 

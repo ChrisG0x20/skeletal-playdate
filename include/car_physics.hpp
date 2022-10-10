@@ -7,6 +7,7 @@
 #ifndef CLGCARPHYSICS_HPP
 #define CLGCARPHYSICS_HPP
 
+#include "pd.hpp"
 #include "box2d/box2d.h"
 #include "clg-math/clg_vector.hpp"
 
@@ -139,6 +140,10 @@ public:
 
     Tire()
         : m_body(nullptr)
+        , Speed(0.0f)
+        , IsSkidding(false)
+        , m_maxBackwardSpeed(0.0f)
+        , m_maxDriveForce(0.0f)
     {
     }
 
@@ -251,10 +256,10 @@ public:
         m_body->ApplyForceToCenter(currentForwardNormal, true);
     }
 
-    float Speed;
     b2Body* m_body;
+    float Speed;
     //AudioSource skidSound;
-    bool IsSkidding = false;
+    bool IsSkidding;
 
 private:
     float m_maxBackwardSpeed;
